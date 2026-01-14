@@ -101,8 +101,7 @@ async function fetchTabDataFromBackground(urlMatch: string, xpath: string): Prom
     body: {
       urlMatch,
       xpath
-    },
-    extensionId: 'elljhibejckdpkilpnbkmdedgkbimglb'
+    }
   });
 
   return response;
