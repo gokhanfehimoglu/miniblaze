@@ -19,8 +19,9 @@ class XPathGenerator {
   private timeout: number;
   private startTime: number | null = null;
 
-  // Dynamic ID patterns to avoid
+  // Dynamic ID patterns to avoid. these are page-specific and not reusable
   private readonly dynamicIdPatterns = [
+    /^\d{8}$/i,  // Pure numeric IDs like HN story IDs
     /^ember\d+$/i,
     /^react-[a-z]+-\d+$/i,
     /^ng-[a-z]+-\d+$/i,
@@ -60,7 +61,7 @@ class XPathGenerator {
   }
 
   /**
-   * Main entry point. Optimized for shortest path
+   * Main entry point. Optimized for robustness and reusability
    */
   generate(element: HTMLElement): string {
     this.startTime = Date.now();
@@ -69,22 +70,22 @@ class XPathGenerator {
       throw new Error('Invalid element provided. Must be an HTMLElement.');
     }
 
-    // Strategy 1: Try absolute minimum (tag + position only)
-    const minimalPath = this.tryMinimalPath(element);
-    if (minimalPath && this.validateSelector(minimalPath, element)) {
-      return minimalPath;
+    // Strategy 1: Try stable anchor-based paths first (most robust)
+    const stableAnchorPath = this.tryStableAnchorPath(element);
+    if (stableAnchorPath && this.validateSelector(stableAnchorPath, element)) {
+      return stableAnchorPath;
     }
 
-    // Strategy 2: Try with stable attribute (very short)
+    // Strategy 2: Try with stable attribute (very short and robust)
     const attrPath = this.tryStableAttributePath(element);
     if (attrPath && this.validateSelector(attrPath, element)) {
       return attrPath;
     }
 
-    // Strategy 3: Try anchor-based paths (use stable IDs as anchors)
-    const anchorPath = this.tryAnchorBasedPath(element);
-    if (anchorPath && this.validateSelector(anchorPath, element)) {
-      return anchorPath;
+    // Strategy 3: Try structural position-based paths (robust)
+    const structuralPath = this.tryStructuralPath(element);
+    if (structuralPath && this.validateSelector(structuralPath, element)) {
+      return structuralPath;
     }
 
     // Strategy 4: Try sibling relationships (often shorter)
@@ -93,7 +94,7 @@ class XPathGenerator {
       return siblingPath;
     }
 
-    // Strategy 5: Build up incrementally from element (stops early)
+    // Strategy 5: Build up incrementally from element (as fallback)
     const incrementalPath = this.buildIncrementalPath(element);
     if (incrementalPath && this.validateSelector(incrementalPath, element)) {
       // Try to simplify the path before returning
@@ -107,7 +108,307 @@ class XPathGenerator {
   }
 
   /**
-   * Strategy 1: Try absolute minimal paths
+   * Strategy 1: Stable distinctive container with positioning
+   * Pattern: (//distinctive_container//target)[position]
+   * Tries simplest approaches first before building complex paths
+   */
+  private tryStableAnchorPath(element: HTMLElement): string | null {
+    console.log('🎯 Strategy 1: Looking for simplest robust selector');
+
+    // First, try the absolute simplest: just the element tag
+    const tag = element.tagName.toLowerCase();
+    const simpleTag = `//${tag}`;
+    if (this.isUniqueSelector(simpleTag) && this.validateSelector(simpleTag, element)) {
+      console.log('✅ Simple tag works:', simpleTag);
+      return simpleTag;
+    }
+
+    // Try with semantic landmarks first (main, article, section)
+    for (const landmark of this.semanticLandmarks) {
+      const landmarkPath = `//${landmark}//${tag}`;
+      console.log('🔍 Testing landmark path:', landmarkPath);
+      if (this.isUniqueSelector(landmarkPath) && this.validateSelector(landmarkPath, element)) {
+        console.log('✅ Landmark path works:', landmarkPath);
+        return landmarkPath;
+      }
+    }
+
+    // Find the distinctive container for the element (like span[@class="titleline"])
+    const container = this.findDistinctiveContainer(element);
+    if (!container) {
+      console.log('❌ No distinctive container found');
+      return null;
+    }
+
+    console.log('✅ Found container:', container.tagName, container.className);
+
+    const containerSegment = this.getDistinctiveSegment(container);
+    if (!containerSegment) {
+      console.log('❌ Failed to get container segment');
+      return null;
+    }
+
+    console.log('✅ Container segment:', containerSegment);
+
+    // Build path from container to target element
+    const targetPath = this.buildPathToTarget(element, container);
+    if (!targetPath) {
+      console.log('❌ Failed to build target path');
+      return null;
+    }
+
+    console.log('✅ Target path:', targetPath);
+
+    // The distinctive path: //container//target
+    const distinctivePath = `//${containerSegment}//${targetPath}`;
+    console.log('🎯 Distinctive path:', distinctivePath);
+
+    // Find position among all matching paths
+    const position = this.findPositionAmongSiblings(distinctivePath, element);
+    if (position === null) {
+      console.log('❌ Failed to find position');
+      return null;
+    }
+
+    console.log('✅ Position:', position);
+
+    // Try the positional pattern: (distinctive_path)[position]
+    const positionalXpath = `(${distinctivePath})[${position}]`;
+    console.log('🎯 Final XPath:', positionalXpath);
+
+    if (this.isUniqueSelector(positionalXpath) && this.validateSelector(positionalXpath, element)) {
+      console.log('✅ SUCCESS with positional XPath!');
+      return positionalXpath;
+    }
+
+    console.log('❌ Validation failed');
+    return null;
+  }
+
+  /**
+   * Find distinctive container. an element with stable characteristics
+   */
+  private findDistinctiveContainer(element: HTMLElement): HTMLElement | null {
+    let current = element.parentElement;
+    let depth = 0;
+
+    while (current && current !== document.documentElement && depth < 6) {
+      console.log(`  🔍 Checking ${current.tagName}:`, current.className, current.id);
+
+      // Check for distinctive class
+      console.log(`  🔍 Checking className: "${current.className}", type: ${typeof current.className}`);
+      if (current.className && typeof current.className === 'string') {
+        const stableClass = this.getStableClass(current);
+        console.log(`  📝 Stable class: ${stableClass}, isDistinctive: ${stableClass ? this.isDistinctiveClass(stableClass) : 'N/A'}`);
+        if (stableClass && this.isDistinctiveClass(stableClass)) {
+          console.log(`  ✅ Found distinctive class container!`);
+          return current;
+        }
+      } else {
+        console.log(`  ⏭️ Skipping className check`);
+      }
+
+      // Check for stable ID
+      if (current.id && this.isStableId(current.id)) {
+        console.log(`  ✅ Found stable ID container: ${current.id}`);
+        return current;
+      }
+
+      // Check for semantic landmarks
+      if (this.semanticLandmarks.includes(current.tagName.toLowerCase())) {
+        console.log(`  ✅ Found semantic landmark: ${current.tagName}`);
+        return current;
+      }
+
+      current = current.parentElement;
+      depth++;
+    }
+
+    console.log('  ❌ No distinctive container found');
+    return null;
+  }
+
+  /**
+   * Find position among siblings with same distinctive path
+   */
+  private findPositionAmongSiblings(distinctivePath: string, targetElement: HTMLElement): number | null {
+    try {
+      console.log(`    📍 Finding position for: ${distinctivePath}`);
+
+      // Find all elements matching the distinctive path
+      const allMatches = document.evaluate(
+        distinctivePath,
+        document,
+        null,
+        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+        null
+      );
+
+      console.log(`    📍 Found ${allMatches.snapshotLength} total matches`);
+
+      if (allMatches.snapshotLength === 0) return null;
+
+      // Find the position of our target element
+      for (let i = 0; i < allMatches.snapshotLength; i++) {
+        const match = allMatches.snapshotItem(i);
+        console.log(`    📍 Match ${i + 1}:`, match, '=== target:', match === targetElement);
+        if (match === targetElement) {
+          console.log(`    ✅ Found position: ${i + 1}`);
+          return i + 1; // XPath is 1-indexed
+        }
+      }
+
+      console.log(`    ❌ Target element not found in matches`);
+      return null;
+    } catch (e) {
+      console.log(`    ❌ Error finding position: ${e}`);
+      return null;
+    }
+  }
+
+  /**
+   * Build path from container to target element
+   */
+  private buildPathToTarget(element: HTMLElement, container: HTMLElement): string | null {
+    const path: string[] = [];
+    let current: HTMLElement | null = element;
+
+    while (current && current !== container) {
+      const tag = current.tagName.toLowerCase();
+
+      // Skip implicit elements
+      if (this.implicitElements.includes(tag)) {
+        current = current.parentElement;
+        continue;
+      }
+
+      path.unshift(tag);
+      current = current.parentElement;
+
+      // Safety limit
+      if (path.length > 4) break;
+    }
+
+    return path.length > 0 ? path.join('/') : null;
+  }
+
+  /**
+   * Find truly stable anchor (not page-specific)
+   * Prioritizes: closest stable ID > semantic landmarks > strong attributes
+   */
+  private findStableAnchor(element: HTMLElement): HTMLElement | null {
+    let current = element.parentElement;
+    let depth = 0;
+
+    while (current && current !== document.documentElement && depth < 10) {
+      // First priority: stable ID (like 'bigbox', 'hnmain')
+      // We want the CLOSEST stable anchor, not the furthest
+      if (current.id && this.isStableId(current.id)) {
+        return current;
+      }
+
+      current = current.parentElement;
+      depth++;
+    }
+
+    // If no stable ID found, look for semantic landmarks
+    current = element.parentElement;
+    depth = 0;
+
+    while (current && current !== document.documentElement && depth < 10) {
+      if (this.semanticLandmarks.includes(current.tagName.toLowerCase())) {
+        return current;
+      }
+
+      current = current.parentElement;
+      depth++;
+    }
+
+    return null;
+  }
+
+  /**
+   * Build positional path from anchor to target (like /table/tbody/tr[5]/td[3]/span/a)
+   * Uses direct child relationships (/) for shorter, more robust paths
+   */
+  private buildPositionalPath(element: HTMLElement, anchor: HTMLElement): string {
+    const path: string[] = [];
+    let current: HTMLElement | null = element;
+
+    while (current && current !== anchor) {
+      const tag = current.tagName.toLowerCase();
+
+      // Skip implicit elements
+      if (this.implicitElements.includes(tag)) {
+        current = current.parentElement;
+        continue;
+      }
+
+      // Build segment with class information if available and distinctive
+      let segment: string;
+      const stableClass = this.getStableClass(current);
+
+      if (stableClass && this.isDistinctiveClass(stableClass)) {
+        // Use class for better specificity
+        segment = `${tag}[@class="${this.escapeXPath(stableClass)}"]`;
+      } else {
+        // Get position among ALL siblings (not just same-tag) for more accurate positioning
+        const allSiblings = Array.from(current.parentElement?.children || []);
+        const position = allSiblings.indexOf(current) + 1;
+
+        // Use position if there are multiple siblings
+        if (allSiblings.length > 1) {
+          segment = `${tag}[${position}]`;
+        } else {
+          segment = tag;
+        }
+      }
+
+      path.unshift(`/${segment}`);
+      current = current.parentElement;
+
+      // Safety limit
+      if (path.length > 8) break;
+    }
+
+    return path.join('');
+  }
+
+  /**
+   * Strategy 3: Structural position-based paths
+   * Uses consistent positioning patterns that work across page loads
+   */
+  private tryStructuralPath(element: HTMLElement): string | null {
+    const tag = element.tagName.toLowerCase();
+
+    // If element has siblings with same tag, use positioning
+    const position = this.getElementPosition(element);
+    const siblings = this.getSiblingsByTag(element);
+
+    if (siblings > 1) {
+      // Try tag + position
+      const xpath = `//${tag}[${position}]`;
+      if (this.isUniqueSelector(xpath) && this.validateSelector(xpath, element)) {
+        return xpath;
+      }
+    }
+
+    // Try building up using class names (if stable)
+    if (element.className && typeof element.className === 'string') {
+      const stableClass = this.getStableClass(element);
+      if (stableClass && this.isDistinctiveClass(stableClass)) {
+        const xpath = `//${tag}[contains(@class, "${this.escapeXPath(stableClass)}")]`;
+        if (this.isUniqueSelector(xpath) && this.validateSelector(xpath, element)) {
+          return xpath;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Strategy 2: Try absolute minimal paths
    */
   private tryMinimalPath(element: HTMLElement): string | null {
     const tag = element.tagName.toLowerCase();
@@ -377,56 +678,35 @@ class XPathGenerator {
       const parentPosition = this.getElementPosition(current);
       const parentSiblings = this.getSiblingsByTag(current);
 
-      // For parent elements, use position if they have siblings. this distinguishes which post row we're in
+      // For parent elements, use position if they have siblings or stable ID
       let parentSegment: string;
 
-      // For dynamic IDs, still use them if they help distinguish elements
-      if (current.id && !this.isStableId(current.id)) {
-
-        // Try the absolute shortest path. just id + minimal child path
-        const minimalChildPath = this.getMinimalChildPath(element, current);
-        const shortestPath = `//*[@id="${this.escapeXPath(current.id)}"]${minimalChildPath}`;
-        if (this.isUniqueSelector(shortestPath) && this.validateSelector(shortestPath, element)) {
-          return shortestPath;
-        }
-
-        // Try with tag + ID
-        parentSegment = `${parentTag}[@id="${this.escapeXPath(current.id)}"]`;
-        const tagIdPath = `//${parentSegment}${minimalChildPath}`;
-        if (this.isUniqueSelector(tagIdPath) && this.validateSelector(tagIdPath, element)) {
-          return tagIdPath;
-        }
-
-        // Add to segments and continue
-        segments.unshift(parentSegment);
+      // Use position for siblings or stable ID if available
+      if (parentSiblings > 1) {
+        parentSegment = `${parentTag}[${parentPosition}]`;
       } else {
-        // Use position for siblings or stable ID if available
-        if (parentSiblings > 1) {
-          parentSegment = `${parentTag}[${parentPosition}]`;
+        // Use stable ID if available
+        if (current.id && this.isStableId(current.id)) {
+          parentSegment = `${parentTag}[@id="${this.escapeXPath(current.id)}"]`;
         } else {
-          // Use stable ID if available
-          if (current.id && this.isStableId(current.id)) {
-            parentSegment = `${parentTag}[@id="${this.escapeXPath(current.id)}"]`;
-          } else {
-            parentSegment = parentTag;
-          }
+          parentSegment = parentTag;
         }
-
-        // Try adding just parent tag
-        xpath = `//${parentTag}//${currentSegment}`;
-        if (this.isUniqueSelector(xpath) && this.validateSelector(xpath, element)) {
-          return xpath;
-        }
-
-        // Try with positioned parent
-        xpath = `//${parentSegment}//${currentSegment}`;
-        if (this.isUniqueSelector(xpath) && this.validateSelector(xpath, element)) {
-          return xpath;
-        }
-
-        // Add to segments and continue building upward
-        segments.unshift(parentSegment);
       }
+
+      // Try adding just parent tag
+      xpath = `//${parentTag}//${currentSegment}`;
+      if (this.isUniqueSelector(xpath) && this.validateSelector(xpath, element)) {
+        return xpath;
+      }
+
+      // Try with positioned parent
+      xpath = `//${parentSegment}//${currentSegment}`;
+      if (this.isUniqueSelector(xpath) && this.validateSelector(xpath, element)) {
+        return xpath;
+      }
+
+      // Add to segments and continue building upward
+      segments.unshift(parentSegment);
 
       // Test current path
       xpath = '//' + segments.join('//');
@@ -632,7 +912,13 @@ class XPathGenerator {
       return `${tag}[@${stableAttr.name}="${this.escapeXPath(stableAttr.value)}"]`;
     }
 
-    // Use position for common structural elements
+    // Check for distinctive class first (before position). this is key for the new strategy
+    const stableClass = this.getStableClass(element);
+    if (stableClass && this.isDistinctiveClass(stableClass)) {
+      return `${tag}[contains(@class, "${this.escapeXPath(stableClass)}")]`;
+    }
+
+    // Use position for common structural elements (only if no distinctive class)
     const position = this.getElementPosition(element);
     const siblings = this.getSiblingsByTag(element);
 
@@ -646,13 +932,7 @@ class XPathGenerator {
       return tag;
     }
 
-    // Check for stable class (but only if really distinctive)
-    const stableClass = this.getStableClass(element);
-    if (stableClass && this.isDistinctiveClass(stableClass)) {
-      return `${tag}[contains(@class, "${this.escapeXPath(stableClass)}")]`;
-    }
-
-    // Default: just tag
+    // Default: just tag (fallback)
     return tag;
   }
 
@@ -661,9 +941,9 @@ class XPathGenerator {
    */
   private isDistinctiveClass(className: string): boolean {
     // Only use classes that are likely unique/semantic
-    // Prefer classes with hyphens (BEM-style) and reasonable length
+    // Accept: BEM-style with hyphens, camelCase, or descriptive names
     return className.length >= 5 &&
-           className.includes('-') &&
+           (className.includes('-') || /^[a-z][a-z]/.test(className)) &&
            !className.match(/^[a-z]\d/); // Not like "p1", "m2"
   }
 
@@ -724,18 +1004,26 @@ class XPathGenerator {
       return null;
     }
 
-    const classes = element.className.trim().split(/\s+/)
-      .filter(cls => this.isStableClass(cls));
+    const allClasses = element.className.trim().split(/\s+/);
+    console.log(`    🔍 All classes: ${allClasses.join(', ')}`);
+
+    const stableClasses = allClasses.filter(cls => {
+      const isStable = this.isStableClass(cls);
+      console.log(`    🔍 Class "${cls}": isStable=${isStable}`);
+      return isStable;
+    });
 
     // Prefer longer, more semantic classes
-    const sorted = classes.sort((a, b) => {
+    const sorted = stableClasses.sort((a, b) => {
       const aHyphens = (a.match(/-/g) || []).length;
       const bHyphens = (b.match(/-/g) || []).length;
       if (aHyphens !== bHyphens) return bHyphens - aHyphens;
       return b.length - a.length;
     });
 
-    return sorted[0] || null;
+    const result = sorted[0] || null;
+    console.log(`    ✅ Selected class: ${result}`);
+    return result;
   }
 
   /**
@@ -753,7 +1041,6 @@ class XPathGenerator {
     if (!className) return false;
 
     const unstablePatterns = [
-      /^[a-z0-9]{6,}$/i,
       /^css-/,
       /^jsx-/,
       /^sc-/,
@@ -764,7 +1051,21 @@ class XPathGenerator {
       /^\d/
     ];
 
-    return !unstablePatterns.some(pattern => pattern.test(className));
+    // Check unstable patterns first
+    if (unstablePatterns.some(pattern => pattern.test(className))) {
+      return false;
+    }
+
+    // Special case: purely alphanumeric long strings
+    // Accept if they look like semantic words, reject if they look generated
+    if (/^[a-z]{6,}$/i.test(className)) {
+      // Accept if it has reasonable vowel ratio (not random characters)
+      const vowelCount = (className.match(/[aeiou]/gi) || []).length;
+      const ratio = vowelCount / className.length;
+      return ratio >= 0.3; // At least 30% vowels suggests a real word
+    }
+
+    return true;
   }
 
   /**
