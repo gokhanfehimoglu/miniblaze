@@ -1,7 +1,7 @@
 {
   "name": "miniblaze",
   "displayName": "MiniBlaze",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "An optimal xpath selector solution for Text Blaze",
   "author": "Gökhan Fehimoğlu <gokhanfehimoglu@gmail.com>",
   "scripts": {
